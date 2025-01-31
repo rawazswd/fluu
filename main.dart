@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:google_nav_bar/google_nav_bar.dart';
 import 'package:intl/intl.dart';
+import 'api_manager.dart';
 
 void main() {
 
@@ -775,18 +776,62 @@ class _ShopPageState extends State<ShopPage> {
   double get totalPrice =>
       cart.fold(0.0, (sum, item) => sum + item['price']);
 //ئادی ئەکات بۆ ناو جانتاکە
-  void addToCart(Map<String, dynamic> product) {
-    setState(() {
-      cart.add(product);
-    });
-  }
-  // بۆ سرینەوەی شتەکان
+ Future<void> addToCart(Map<String, dynamic> product) async {
+  try {
+    final response = await ApiService().post(
+      // ئەمە بە پێی باکئێندەکە دانێ :ASO
+      '/cart', 
+      data: {'product_id': product['id'], 'quantity': 1},
+    );
 
-  void removeFromCart(Map<String, dynamic> product) {
-    setState(() {
-      cart.remove(product);
-    });
+    if (response is Map<String, dynamic> && response.containsKey('error')) {
+      // Handle API error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(response['message'].toString(), style: TextStyle(color: Colors.red))),
+      );
+    } else {
+      // Successfully added to cart, update UI
+      setState(() {
+        cart.add(product);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Item added to cart successfully!')),
+      );
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Failed to add item to cart: $e', style: TextStyle(color: Colors.red))),
+    );
   }
+}
+
+  // بۆ سرینەوەی شتەکان
+ Future<void> removeFromCart(Map<String, dynamic> product) async {
+  try {
+    // ئەمە بە پێی باکئێندەکە دانێ :ASO
+    final response = await ApiService().delete('/cart/${product['id']}');
+
+    if (response.containsKey('error')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(response['error'], style: TextStyle(color: Colors.red))),
+      );
+    } else {
+      setState(() {
+        cart.remove(product);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Item removed from cart!')),
+      );
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Failed to remove item: $e', style: TextStyle(color: Colors.red))),
+    );
+  }
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -1031,6 +1076,9 @@ class ServicePage extends StatefulWidget {
 class _ServicePageState extends State<ServicePage> {
   late String _formattedDateTime; // بۆ هەڵگرتنی بەروار و کات بە فۆرماتی ڕوون
   late Timer _timer; // تایمەر بۆ نوێکردنەوەی کات بە شێوەی خوکار
+  Map<String, dynamic>? monthlyReport;
+  bool isLoading = true;
+  String errorMessage = '';
 
   @override
   void initState() {
@@ -1039,6 +1087,8 @@ class _ServicePageState extends State<ServicePage> {
     _timer = Timer.periodic(Duration(seconds: 1), (timer) {
       _updateDateTime(); // هەر چرکەیەک نوێ بکەرەوە
     });
+    // لێرە فەنکشنەکەم بانگکردوەتەوە : ASO
+    _fetchMonthlyReport();
   }
 
   @override
@@ -1054,6 +1104,29 @@ class _ServicePageState extends State<ServicePage> {
           DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
     });
   }
+
+  // ئەم فەنکشنە بۆ وەرگرتنەوەی داتای مانگانەکەیە : ASO
+  Future<void> _fetchMonthlyReport() async {
+  try {
+    final response = await ApiService().get('/monthly-report');
+    if (response is Map<String, dynamic> && response.containsKey('error')) {
+      setState(() {
+        errorMessage = response['message'].toString();
+        isLoading = false;
+      });
+    } else {
+      setState(() {
+        monthlyReport = response;
+        isLoading = false;
+      });
+    }
+  } catch (e) {
+    setState(() {
+      errorMessage = 'Failed to fetch report';
+      isLoading = false;
+    });
+  }
+}
 
   // فۆنکشنی یارمەتیدەر بۆ دروستکردنی هێڵی ناونیشانەکان
   Widget _buildLabelRow(List<String> labels) {
@@ -1111,22 +1184,25 @@ class _ServicePageState extends State<ServicePage> {
               _buildLabelRow(['جۆری  خەدەمات', 'کۆی یەکە', 'نرخی یەکە', 'پارەی خەدەمات']),
               SizedBox(height: 20),
 
+              // TODO: سەیری ئەمانەی خوارەوە بکەرەوە بەپێی ئەوەی کە لە باکئێند یەتەوە داینێ : ASO
+              // مەبەستم ئەمانەیە: monthlyReport?['electricity']['units'] :ASO
+
               // داتاکانی خزمەتگوزاری کارەبا
-              _buildLabelRow(['کارەبا', '11', '4', '44']),
-              SizedBox(height: 20),
+                      _buildLabelRow(['کارەبا', monthlyReport?['electricity']['units'].toString() ?? '-', monthlyReport?['electricity']['unit_price'].toString() ?? '-', monthlyReport?['electricity']['total'].toString() ?? '-']),
+                  SizedBox(height: 20),
 
               // داتاکانی خزمەتگوزاری غاز
-              _buildLabelRow(['غاز', '11', '22', '242']),
-              SizedBox(height: 20),
+              _buildLabelRow(['غاز', monthlyReport?['gas']['units'].toString() ?? '-', monthlyReport?['gas']['unit_price'].toString() ?? '-', monthlyReport?['gas']['total'].toString() ?? '-']),
+                  SizedBox(height: 20),
 
               // داتاکانی خزمەتگوزاری ئاو
-              _buildLabelRow(['ئاو', '31', '7', '217']),
-              SizedBox(height: 80),
+               _buildLabelRow(['ئاو', monthlyReport?['water']['units'].toString() ?? '-', monthlyReport?['water']['unit_price'].toString() ?? '-', monthlyReport?['water']['total'].toString() ?? '-']),
+                  SizedBox(height: 80),
 
               // خزمەتگوزاری گشتی
               _buildLabelRow(['خەدەماتی گشتی', 'کۆی گشتی']),
               SizedBox(height: 10),
-              _buildLabelRow(['40', '543']),
+              _buildLabelRow([monthlyReport?['total_services'].toString() ?? '-', monthlyReport?['total_price'].toString() ?? '-']),
             ],
           ),
         ),
